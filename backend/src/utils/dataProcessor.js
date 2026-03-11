@@ -1,0 +1,188 @@
+/**
+ * Data Processor Utility
+ * Handles data transformation and grouping logic
+ */
+
+/**
+ * Parse date string into standardized format
+ * @param {string} dateStr - Date string in various formats
+ * @returns {Object} Parsed date info with year and formatted string
+ */
+export const parseDate = (dateStr) => {
+  let year = new Date().getFullYear();
+  let formattedDate = new Date().toISOString().split('T')[0];
+
+  if (!dateStr) {
+    return { year, formattedDate };
+  }
+
+  // Handle YYYY-MM-DD (ISO format - typical from Supabase)
+  if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    const date = new Date(dateStr);
+    if (!isNaN(date.getTime())) {
+      year = date.getFullYear();
+      formattedDate = dateStr;
+    }
+  }
+  // Handle DD-MM-YYYY (Common manual entry format)
+  else if (dateStr.match(/^\d{2}-\d{2}-\d{4}$/)) {
+    const parts = dateStr.split('-');
+    formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+    year = parseInt(parts[2], 10);
+  }
+  // Handle MM/DD/YYYY (US format)
+  else if (dateStr.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
+    const parts = dateStr.split('/');
+    formattedDate = `${parts[2]}-${parts[0]}-${parts[1]}`;
+    year = parseInt(parts[2], 10);
+  }
+  // Try generic parse
+  else {
+    const date = new Date(dateStr);
+    if (!isNaN(date.getTime())) {
+      year = date.getFullYear();
+      formattedDate = date.toISOString().split('T')[0];
+    }
+  }
+
+  return { year, formattedDate };
+};
+
+/**
+ * Clean up location string
+ * Converts slugs like "austin-tx" to "Austin Tx"
+ * @param {string} location - Raw location string
+ * @returns {string} Cleaned location string
+ */
+export const cleanLocation = (location) => {
+  if (!location) return 'Uncategorized';
+
+  return location
+    .split(/[-_]/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+};
+
+/**
+ * Process speakers from various formats
+ * @param {any} speakers - Speakers data (array, string, or null)
+ * @returns {string} Comma-separated speaker names
+ */
+export const processSpeakers = (speakers) => {
+  if (Array.isArray(speakers) && speakers.length > 0) {
+    return speakers.join(', ');
+  }
+
+  if (typeof speakers === 'string' && speakers.trim().length > 0) {
+    return speakers.trim();
+  }
+
+  return 'Unknown Speaker';
+};
+
+/**
+ * Process tags from various formats
+ * @param {any} tags - Tags data
+ * @param {any} categories - Fallback categories data
+ * @returns {string[]} Array of tags
+ */
+export const processTags = (tags, categories) => {
+  if (Array.isArray(tags) && tags.length > 0) {
+    return tags;
+  }
+
+  if (Array.isArray(categories) && categories.length > 0) {
+    return categories;
+  }
+
+  return [];
+};
+
+/**
+ * Get best available transcript content
+ * @param {Object} row - Database row
+ * @returns {string} Best available transcript content
+ */
+export const getBestTranscriptContent = (row) => {
+  return (
+    row.corrected_text ||
+    row.raw_text ||
+    'Processing transcript... content pending.'
+  );
+};
+
+/**
+ * Generate conference ID from location and year
+ * @param {string} location - Conference location
+ * @param {number} year - Conference year
+ * @returns {string} Conference ID
+ */
+export const generateConferenceId = (location, year) => {
+  const cleanLoc = location.toLowerCase().replace(/\s+/g, '');
+  return `conf_${cleanLoc}_${year}`;
+};
+
+/**
+ * Transform raw database rows into structured conferences
+ * @param {Array} rows - Raw database rows
+ * @returns {Array} Structured conference objects
+ */
+export const transformToConferences = (rows) => {
+  if (!rows || rows.length === 0) {
+    return [];
+  }
+
+  const conferencesMap = new Map();
+
+  rows.forEach((row) => {
+    // Parse date
+    const { year, formattedDate } = parseDate(row.event_date);
+
+    // Clean location
+    const location = cleanLocation(row.loc);
+
+    // Generate conference ID and name
+    const confId = generateConferenceId(location, year);
+    const confName = `${location} ${year}`;
+
+    // Create conference if it doesn't exist
+    if (!conferencesMap.has(confId)) {
+      conferencesMap.set(confId, {
+        id: confId,
+        name: confName,
+        location,
+        year,
+        talks: [],
+      });
+    }
+
+    // Create talk object
+    const talk = {
+      id: row.id,
+      title: row.title || 'Untitled Session',
+      speaker: processSpeakers(row.speakers),
+      duration: 'N/A',
+      date: formattedDate,
+      transcript: getBestTranscriptContent(row),
+      summary: row.summary || null,
+      tags: processTags(row.tags, row.categories),
+      transcriptBy: 'BitScribe',
+    };
+
+    // Add talk to conference
+    conferencesMap.get(confId).talks.push(talk);
+  });
+
+  // Convert Map to Array and sort by year descending
+  return Array.from(conferencesMap.values()).sort((a, b) => b.year - a.year);
+};
+
+export default {
+  parseDate,
+  cleanLocation,
+  processSpeakers,
+  processTags,
+  getBestTranscriptContent,
+  generateConferenceId,
+  transformToConferences,
+};
