@@ -5,7 +5,7 @@ const sidebarLinks = [
   { label: "Categories", path: "/categories" },
   { label: "Topics", path: "/topics" },
   { label: "Speakers", path: "/speakers" },
-  { label: "Types", path: "/types" },
+  { label: "Formats", path: "/types" },
   { label: "Sources", path: "/sources" },
 ];
 

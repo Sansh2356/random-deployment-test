@@ -56,6 +56,14 @@ export const validationRules = {
       .withMessage('Search query must be between 2 and 200 characters')
       .trim()
       .escape(),
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 50 })
+      .withMessage('Limit must be between 1 and 50'),
   ],
 
   // Summary generation

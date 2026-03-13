@@ -6,7 +6,7 @@
 
 import { api, APIError } from './api';
 import config from './config';
-import type { Conference, Talk, RawTranscript } from '../types';
+import type { Conference, Talk, RawTranscript, SearchResult, PaginatedResponse } from '../types';
 
 /**
  * Fetch all conferences (grouped transcripts)
@@ -75,27 +75,44 @@ export const getTranscriptById = async (id: string): Promise<RawTranscript | nul
 };
 
 /**
- * Search transcripts
+ * Search transcripts using full-text search
  * @param query - Search query string
- * @returns Promise with array of matching conferences
+ * @param page - Page number (1-based)
+ * @param limit - Results per page
+ * @returns Promise with paginated search results
  */
-export const searchTranscripts = async (query: string): Promise<Conference[]> => {
+export const searchTranscripts = async (
+  query: string,
+  page: number = 1,
+  limit: number = 20
+): Promise<PaginatedResponse<SearchResult>> => {
+  const empty: PaginatedResponse<SearchResult> = {
+    data: [],
+    pagination: { page: 1, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false },
+  };
+
   try {
     const trimmedQuery = query.trim();
     if (trimmedQuery.length < 2) {
-      return [];
+      return empty;
     }
 
     const encodedQuery = encodeURIComponent(trimmedQuery);
-    const conferences = await api.get<Conference[]>(`${config.endpoints.search}?q=${encodedQuery}`);
-    return conferences;
+    const response = await api.get<{ results: SearchResult[]; pagination: PaginatedResponse<SearchResult>['pagination'] }>(
+      `${config.endpoints.search}?q=${encodedQuery}&page=${page}&limit=${limit}`
+    );
+
+    return {
+      data: response.results || [],
+      pagination: response.pagination || empty.pagination,
+    };
   } catch (error) {
     if (error instanceof APIError) {
       console.error('API Error searching transcripts:', error.message);
     } else {
       console.error('Unexpected error searching transcripts:', error);
     }
-    return [];
+    return empty;
   }
 };
 

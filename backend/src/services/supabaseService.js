@@ -104,44 +104,61 @@ export const fetchTranscriptById = async (id) => {
 };
 
 /**
- * Search transcripts by query
+ * Search transcripts using PostgreSQL Full-Text Search via Supabase RPC.
+ * Returns ranked results with highlighted snippets.
  * @param {string} query - Search query
- * @returns {Promise<Array>} Array of matching transcripts
+ * @param {number} limit - Max results per page
+ * @param {number} offset - Offset for pagination
+ * @returns {Promise<Array>} Array of matching transcript search results
  */
-export const searchTranscripts = async (query) => {
+export const searchTranscripts = async (query, limit = 20, offset = 0) => {
   const client = getSupabaseClient();
 
-  // Sanitize query to prevent injection
+  // Sanitize: strip characters that could interfere with tsquery parsing.
+  // plainto_tsquery on the DB side already handles safe conversion, but we
+  // still trim and cap length on the application side.
   const sanitizedQuery = query
-    .replace(/[%_\\]/g, '') // Remove SQL wildcards
-    .replace(/[<>"'`;(){}[\]]/g, '') // Remove potentially dangerous chars
+    .replace(/[<>"'`;(){}[\]\\]/g, '')
     .trim()
-    .substring(0, 200); // Limit length
+    .substring(0, 200);
 
   if (!sanitizedQuery || sanitizedQuery.length < 2) {
     logger.warn('Search query too short or invalid after sanitization');
-    return [];
+    return { results: [], total: 0 };
   }
 
-  logger.info(`Searching transcripts for: "${sanitizedQuery}"`);
+  logger.info(`FTS searching transcripts for: "${sanitizedQuery}" (limit=${limit}, offset=${offset})`);
 
-  // Search in title and content using ilike (case-insensitive)
-  const { data, error } = await withTimeout(
-    client
-      .from('transcripts')
-      .select('*')
-      .or(`title.ilike.%${sanitizedQuery}%,raw_text.ilike.%${sanitizedQuery}%,corrected_text.ilike.%${sanitizedQuery}%`)
-      .order('event_date', { ascending: false })
-      .limit(50)
-  );
+  // Run both RPC calls in parallel for speed.
+  const [searchResult, countResult] = await Promise.all([
+    withTimeout(
+      client.rpc('search_transcripts_fts', {
+        search_query: sanitizedQuery,
+        result_limit: limit,
+        result_offset: offset,
+      })
+    ),
+    withTimeout(
+      client.rpc('search_transcripts_fts_count', {
+        search_query: sanitizedQuery,
+      })
+    ),
+  ]);
 
-  if (error) {
-    logger.error('Supabase search error:', { error: error.message });
-    throw new Error(`Search error: ${error.message}`);
+  if (searchResult.error) {
+    logger.error('Supabase FTS search error:', { error: searchResult.error.message });
+    throw new Error(`Search error: ${searchResult.error.message}`);
   }
 
-  logger.info(`Search returned ${data?.length || 0} results`);
-  return data || [];
+  if (countResult.error) {
+    logger.warn('Supabase FTS count error (non-fatal):', { error: countResult.error.message });
+  }
+
+  const results = searchResult.data || [];
+  const total = countResult.data ?? results.length;
+
+  logger.info(`FTS search returned ${results.length} results (total: ${total})`);
+  return { results, total };
 };
 
 /**

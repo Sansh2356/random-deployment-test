@@ -57,3 +57,35 @@ export interface Entities {
   sentiment: string;
 }
 
+/**
+ * A single full-text search result row (from search_transcripts_fts RPC)
+ */
+export interface SearchResult {
+  id: string;
+  title: string;
+  speakers: string[] | string;
+  event_date: string;
+  loc: string;
+  tags: string[];
+  categories: string[];
+  summary: string | null;
+  rank: number;
+  headline_title: string;
+  headline_content: string;
+}
+
+/**
+ * Paginated API response wrapper
+ */
+export interface PaginatedResponse<T> {
+  data: T[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrev: boolean;
+  };
+}
+

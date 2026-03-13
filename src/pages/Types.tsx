@@ -19,15 +19,15 @@ const Types = () => {
       <div className="flex items-center gap-2 text-sm text-muted-foreground font-mono mb-6">
         <Link to="/" className="hover:text-foreground">Home</Link>
         <span>/</span>
-        <span className="text-primary">Types</span>
+        <span className="text-primary">Formats</span>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-8">
         <CategorySidebar />
 
         <div className="flex-1 min-w-0">
-          <h1 className="font-display text-3xl font-bold mb-2">Types</h1>
-          <p className="text-muted-foreground mb-8">Browse transcripts by content type.</p>
+          <h1 className="font-display text-3xl font-bold mb-2">Formats</h1>
+          <p className="text-muted-foreground mb-8">Browse transcripts by content format (conference, podcast, workshop, etc.).</p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {types.map((type, i) => {

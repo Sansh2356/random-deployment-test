@@ -1,10 +1,10 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ThemeToggle } from "./ThemeToggle";
-import { Search, Menu, X, Zap, Globe, Loader2, FileText, Users } from "lucide-react";
+import { Search, Menu, X, Zap, Globe, FileText, Users, Clock, ArrowRight } from "lucide-react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { searchTranscripts, getConferences } from "../../services/dataService";
-import type { Conference } from "../../types";
+import type { Conference, SearchResult, PaginatedResponse } from "../../types";
 
 const navItems = [
   { label: "Explore", path: "/categories" },
@@ -12,14 +12,63 @@ const navItems = [
   { label: "About", path: "/about" },
 ];
 
+const RECENT_SEARCHES_KEY = "bitscribe_recent_searches";
+const MAX_RECENT_SEARCHES = 5;
+
+const getRecentSearches = (): string[] => {
+  try {
+    const raw = localStorage.getItem(RECENT_SEARCHES_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveRecentSearch = (query: string) => {
+  const trimmed = query.trim();
+  if (trimmed.length < 2) return;
+  const recent = getRecentSearches().filter((s) => s !== trimmed);
+  recent.unshift(trimmed);
+  localStorage.setItem(
+    RECENT_SEARCHES_KEY,
+    JSON.stringify(recent.slice(0, MAX_RECENT_SEARCHES))
+  );
+};
+
+const clearRecentSearches = () => {
+  localStorage.removeItem(RECENT_SEARCHES_KEY);
+};
+
+const SEARCH_SUGGESTIONS = [
+  "lightning network",
+  "Satoshi Nakamoto",
+  "mining",
+  "privacy",
+  "taproot",
+];
+
+/** Skeleton loader card shown while search is in-flight */
+const SearchSkeleton = () => (
+  <div className="px-4 py-3 flex items-start gap-3 animate-pulse">
+    <div className="w-4 h-4 rounded bg-muted mt-0.5 shrink-0" />
+    <div className="flex-1 min-w-0 space-y-2">
+      <div className="h-4 bg-muted rounded w-3/4" />
+      <div className="h-3 bg-muted rounded w-1/2" />
+      <div className="h-3 bg-muted rounded w-full" />
+    </div>
+  </div>
+);
+
 export const Layout = ({ children }: { children: React.ReactNode }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<Conference[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchPagination, setSearchPagination] = useState<PaginatedResponse<SearchResult>["pagination"] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<string[]>(getRecentSearches());
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Fetch stats for ticker tape
@@ -48,6 +97,7 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
         setSearchOpen(false);
         setSearchQuery("");
         setSearchResults([]);
+        setSearchPagination(null);
       }
     };
     document.addEventListener("keydown", handleKeyDown);
@@ -64,6 +114,7 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
 
     if (query.trim().length < 2) {
       setSearchResults([]);
+      setSearchPagination(null);
       setSearchLoading(false);
       return;
     }
@@ -71,15 +122,20 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
     setSearchLoading(true);
     debounceRef.current = setTimeout(async () => {
       try {
-        const results = await searchTranscripts(query);
-        setSearchResults(results);
+        const response = await searchTranscripts(query);
+        setSearchResults(response.data);
+        setSearchPagination(response.pagination);
+        // Save to recent searches on successful query
+        saveRecentSearch(query);
+        setRecentSearches(getRecentSearches());
       } catch (error) {
         console.error("Search error:", error);
         setSearchResults([]);
+        setSearchPagination(null);
       } finally {
         setSearchLoading(false);
       }
-    }, 300);
+    }, 350);
   }, []);
 
   // Cleanup debounce timeout on unmount
@@ -93,7 +149,24 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
     setSearchOpen(false);
     setSearchQuery("");
     setSearchResults([]);
+    setSearchPagination(null);
     navigate(`/transcript/${transcriptId}`);
+  };
+
+  const handleRecentSearchClick = (query: string) => {
+    setSearchQuery(query);
+    handleSearchChange(query);
+  };
+
+  const handleClearRecent = () => {
+    clearRecentSearches();
+    setRecentSearches([]);
+  };
+
+  /** Helper: format speaker display from string[] or string */
+  const formatSpeakers = (speakers: string[] | string): string => {
+    if (Array.isArray(speakers)) return speakers.join(", ");
+    return speakers || "";
   };
 
   return (
@@ -232,49 +305,118 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
                 <kbd className="h-6 px-2 rounded bg-muted text-[10px] font-mono flex items-center border border-border text-muted-foreground">ESC</kbd>
               </div>
               <div className="max-h-[60vh] overflow-y-auto">
+                {/* Skeleton loaders while searching */}
                 {searchLoading && (
-                  <div className="flex items-center justify-center gap-2 py-8">
-                    <Loader2 className="w-4 h-4 animate-spin text-bitcoin" />
-                    <span className="text-sm text-muted-foreground font-mono">Searching...</span>
-                  </div>
-                )}
-                {!searchLoading && searchQuery.trim().length < 2 && (
-                  <div className="flex items-center justify-center gap-2 py-8">
-                    <Zap className="w-4 h-4 text-bitcoin animate-signal-pulse" />
-                    <span className="text-sm text-muted-foreground font-mono">Type to decode the archive...</span>
-                  </div>
-                )}
-                {!searchLoading && searchQuery.trim().length >= 2 && searchResults.length === 0 && (
-                  <div className="flex items-center justify-center gap-2 py-8">
-                    <span className="text-sm text-muted-foreground font-mono">No results found</span>
-                  </div>
-                )}
-                {!searchLoading && searchResults.length > 0 && (
                   <div className="py-2">
-                    {searchResults.map((conference) => (
-                      <div key={conference.id}>
-                        <div className="px-4 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground bg-muted/50">
-                          {conference.name} {conference.year && `(${conference.year})`}
-                        </div>
-                        {conference.talks.map((talk) => (
+                    {[1, 2, 3, 4].map((i) => (
+                      <SearchSkeleton key={i} />
+                    ))}
+                  </div>
+                )}
+
+                {/* Recent searches when input is empty/short */}
+                {!searchLoading && searchQuery.trim().length < 2 && (
+                  <div className="py-4">
+                    {recentSearches.length > 0 && (
+                      <div className="mb-4">
+                        <div className="px-4 flex items-center justify-between mb-2">
+                          <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Recent Searches</span>
                           <button
-                            key={talk.id}
-                            onClick={() => handleResultClick(talk.id)}
-                            className="w-full px-4 py-3 flex items-start gap-3 hover:bg-muted/50 transition-colors text-left"
+                            onClick={handleClearRecent}
+                            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
                           >
-                            <FileText className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium text-foreground truncate">{talk.title}</p>
-                              {talk.speaker && (
-                                <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                                  <Users className="w-3 h-3" />
-                                  {Array.isArray(talk.speaker) ? talk.speaker.join(", ") : talk.speaker}
-                                </p>
-                              )}
-                            </div>
+                            Clear
+                          </button>
+                        </div>
+                        {recentSearches.map((recent) => (
+                          <button
+                            key={recent}
+                            onClick={() => handleRecentSearchClick(recent)}
+                            className="w-full px-4 py-2 flex items-center gap-3 hover:bg-muted/50 transition-colors text-left"
+                          >
+                            <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                            <span className="text-sm text-foreground truncate">{recent}</span>
                           </button>
                         ))}
                       </div>
+                    )}
+                    <div className="px-4">
+                      <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Try searching for</span>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {SEARCH_SUGGESTIONS.map((suggestion) => (
+                          <button
+                            key={suggestion}
+                            onClick={() => handleRecentSearchClick(suggestion)}
+                            className="px-2.5 py-1 rounded-md bg-muted text-xs text-foreground hover:bg-muted/80 transition-colors"
+                          >
+                            {suggestion}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Empty state */}
+                {!searchLoading && searchQuery.trim().length >= 2 && searchResults.length === 0 && (
+                  <div className="flex flex-col items-center justify-center gap-3 py-10">
+                    <Search className="w-8 h-8 text-muted-foreground/50" />
+                    <span className="text-sm text-muted-foreground font-mono">No results found for "{searchQuery}"</span>
+                    <span className="text-xs text-muted-foreground">Try different keywords or check spelling</span>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {SEARCH_SUGGESTIONS.slice(0, 3).map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => handleRecentSearchClick(s)}
+                          className="px-2.5 py-1 rounded-md bg-muted text-xs text-foreground hover:bg-muted/80 transition-colors flex items-center gap-1"
+                        >
+                          <ArrowRight className="w-3 h-3" />
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Search results */}
+                {!searchLoading && searchResults.length > 0 && (
+                  <div className="py-2">
+                    {searchPagination && (
+                      <div className="px-4 py-1.5 text-[10px] font-mono text-muted-foreground uppercase tracking-widest">
+                        {searchPagination.total} result{searchPagination.total !== 1 ? "s" : ""}
+                      </div>
+                    )}
+                    {searchResults.map((result) => (
+                      <button
+                        key={result.id}
+                        onClick={() => handleResultClick(result.id)}
+                        className="w-full px-4 py-3 flex items-start gap-3 hover:bg-muted/50 transition-colors text-left"
+                      >
+                        <FileText className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <p
+                            className="text-sm font-medium text-foreground truncate [&_mark]:bg-bitcoin/20 [&_mark]:text-bitcoin [&_mark]:rounded-sm [&_mark]:px-0.5"
+                            dangerouslySetInnerHTML={{ __html: result.headline_title || result.title }}
+                          />
+                          {result.speakers && (
+                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                              <Users className="w-3 h-3" />
+                              {formatSpeakers(result.speakers)}
+                            </p>
+                          )}
+                          {result.headline_content && (
+                            <p
+                              className="text-xs text-muted-foreground mt-1 line-clamp-2 [&_mark]:bg-bitcoin/20 [&_mark]:text-bitcoin [&_mark]:rounded-sm [&_mark]:px-0.5"
+                              dangerouslySetInnerHTML={{ __html: result.headline_content }}
+                            />
+                          )}
+                          {result.event_date && (
+                            <p className="text-[10px] text-muted-foreground/70 mt-1 font-mono">
+                              {result.event_date}
+                            </p>
+                          )}
+                        </div>
+                      </button>
                     ))}
                   </div>
                 )}

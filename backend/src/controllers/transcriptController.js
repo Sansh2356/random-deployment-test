@@ -59,20 +59,33 @@ export const getTranscriptById = async (req, res) => {
 };
 
 /**
- * Search transcripts
- * GET /api/v1/transcripts/search?q=query
+ * Search transcripts (Full-Text Search with pagination & snippets)
+ * GET /api/v1/transcripts/search?q=query&page=1&limit=20
  */
 export const searchTranscripts = async (req, res) => {
-  const { q } = req.query;
+  const { q, page = '1', limit = '20' } = req.query;
 
-  logger.info(`Controller: Searching transcripts for: "${q}"`);
+  const pageNum = Math.max(1, parseInt(page, 10) || 1);
+  const limitNum = Math.min(50, Math.max(1, parseInt(limit, 10) || 20));
+  const offset = (pageNum - 1) * limitNum;
 
-  const results = await supabaseService.searchTranscripts(q);
+  logger.info(`Controller: FTS search for: "${q}" (page=${pageNum}, limit=${limitNum})`);
 
-  // Transform to conferences format for consistency
-  const conferences = transformToConferences(results);
+  const { results, total } = await supabaseService.searchTranscripts(q, limitNum, offset);
 
-  sendSuccess(res, conferences, `Found ${results.length} matching transcripts`);
+  const totalPages = Math.ceil(total / limitNum);
+
+  sendSuccess(res, {
+    results,
+    pagination: {
+      page: pageNum,
+      limit: limitNum,
+      total,
+      totalPages,
+      hasNext: pageNum < totalPages,
+      hasPrev: pageNum > 1,
+    },
+  });
 };
 
 export default {
