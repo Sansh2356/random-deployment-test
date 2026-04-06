@@ -22,7 +22,7 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Sonner />
-      <BrowserRouter>
+      <BrowserRouter basename="/transcripts_frontend">
         <ScrollToTop />
         <Layout>
           <Routes>
