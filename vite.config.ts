@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 
 export default defineConfig(({ mode }) => ({
-  base: "/random-deployment-test",
+  base: "/random-deployment-test/",
   server: {
     host: "0.0.0.0",
     port: 8080,
